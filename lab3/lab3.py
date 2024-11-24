@@ -1,89 +1,159 @@
 import math
 import matplotlib.pyplot as plt
-from matplotlib.animation import FuncAnimation
-from tqdm import tqdm
+from matplotlib import animation
+from matplotlib.widgets import Slider
+import numpy as np
 
 # Константы
-g = 9.81  # Ускорение свободного падения
-L0 = 5.0  # Начальная длина маятника
-dt = 0.05  # Шаг времени
-T = 20.0  # Время моделирования
-k = 1  # Коэффициент ослабления нити (скорость увеличения длины)
+g = 9.81  # Ускорение свободного падения (м/с^2)
+L = 1.0  # Длина нити маятника (м)
+dt = 0.001  # Шаг времени (с)
+T = 10.0  # Время моделирования (с)
 
-def eulerVariableLength(alpha0, omega0):
-    alpha = alpha0
-    omega = omega0
-    L = L0
+# Начальные условия
+theta0 = math.radians(120)  # Начальный угол отклонения (рад)
+omega0 = 0.0  # Начальная угловая скорость (рад/с)
+
+
+# Функция для расчета натяжения нити
+def tension(theta, omega):
+    Tension = L * omega ** 2 + g * math.cos(theta)
+    return Tension
+
+
+def simulate(T, dt, theta0, omega0):
     timesteps = int(T / dt)
-    alphaList = [0.0] * timesteps
-    lengthList = [0.0] * timesteps
+    timeList = np.linspace(0, T, timesteps)
 
-    print("Вычисление численного решения с изменяющейся длиной нити:")
-    for i in tqdm(range(timesteps)):
-        alphaList[i] = alpha
-        lengthList[i] = L
+    # Списки для хранения результатов
+    thetaList = []
+    omegaList = []
+    xList = []
+    yList = []
 
-        # Обновление длины нити
-        L += k * dt  # Нить ослабляется и длина увеличивается
+    # Начальные условия
+    theta = theta0
+    omega = omega0
+    x = L * math.sin(theta)
+    y = -L * math.cos(theta)
+    vx = 0.0
+    vy = 0.0
 
-        # Угловое ускорение с учётом текущей длины
-        omega_dot = - (g / L) * math.sin(alpha)
-        omega += omega_dot * dt
-        alpha += omega * dt
+    mode = 'swing'  # Режим: 'swing' (маятник) или 'freefall' (свободное падение)
 
-    return alphaList, lengthList
+    for t in timeList:
+        if mode == 'swing':
+            # Вычисляем натяжение нити
+            Tension = tension(theta, omega)
+            if Tension > 0:
+                # Уравнения движения для маятника
+                alpha = -(g / L) * math.sin(theta)
+                omega += alpha * dt
+                theta += omega * dt
+                x = L * math.sin(theta)
+                y = -L * math.cos(theta)
+                vx = L * omega * math.cos(theta)
+                vy = L * omega * math.sin(theta)
+            else:
+                # Нить ослабла, переходим в режим свободного падения
+                mode = 'freefall'
+                # Преобразуем полярные координаты в декартовы скорости
+                vx = L * omega * math.cos(theta)
+                vy = L * omega * math.sin(theta)
+        elif mode == 'freefall':
+            # Уравнения движения для свободного падения
+            vx = vx
+            vy = vy + (-g) * dt
+            x += vx * dt
+            y += vy * dt
+            # Проверяем, натянулась ли нить
+            r = math.sqrt(x ** 2 + y ** 2)
+            if r >= L:
+                mode = 'swing'
+                theta = math.atan2(x, -y)
+                omega = (x * vy - y * vx) / (L ** 2)
+                # Проецируем x и y на окружность радиуса L
+                x = L * math.sin(theta)
+                y = -L * math.cos(theta)
+                vx = L * omega * math.cos(theta)
+                vy = L * omega * math.sin(theta)
 
-def animatePendulum(alphaList, lengthList, save_path='variable_pendulum_animation.gif'):
-    # Определяем максимальную длину нити для корректного масштабирования
-    max_length = max(lengthList)
+        # Сохраняем результаты
+        thetaList.append(theta)
+        omegaList.append(omega)
+        xList.append(x)
+        yList.append(y)
 
-    fig, ax = plt.subplots(figsize=(6, 6))
-    ax.set_xlim(-max_length - 1, max_length + 1)  # Горизонтальные границы
-    ax.set_ylim(-max_length - 1, max_length * 0.2)  # Верхняя граница выше, нижняя увеличена
-    ax.set_aspect('equal', 'box')
+    return timeList, xList, yList, thetaList, omegaList
+
+
+def animatePendulum(xList, yList, dt):
+    fig, ax = plt.subplots(figsize=(8, 8))
+    plt.subplots_adjust(bottom=0.25)  # Оставляем место для слайдера
+    ax.set_xlim(-1.2 * L, 1.2 * L)
+    ax.set_ylim(-1.2 * L, 1.2 * L)
+    ax.set_aspect('equal')
     ax.grid()
 
-    # Линия и точка для маятника
-    line, = ax.plot([], [], 'o-', lw=2, color='blue')
-    time_text = ax.text(-max_length, max_length * 0.15, '', fontsize=10, color='red')
-    length_text = ax.text(-max_length, max_length * 0.1, '', fontsize=10, color='green')
+    line, = ax.plot([], [], 'o-', lw=2)
+    trace, = ax.plot([], [], '-', lw=1, color='gray', alpha=0.5)
+    time_text = ax.text(0.05, 0.9, '', transform=ax.transAxes)
 
+    xdata, ydata = [], []
+
+    # Добавляем ось для слайдера скорости
+    axspeed = plt.axes([0.25, 0.1, 0.65, 0.03])
+    speed_slider = Slider(
+        ax=axspeed,
+        label='Скорость',
+        valmin=1.0,
+        valmax=50.0,
+        valinit=1.0,
+    )
+
+    # Функция инициализации
     def init():
         line.set_data([], [])
+        trace.set_data([], [])
         time_text.set_text('')
-        length_text.set_text('')
-        return line, time_text, length_text
+        return line, trace, time_text
 
+    # Индекс текущего кадра
+    frame_idx = [0]
+    total_frames = len(xList)
+
+    # Функция обновления кадров
     def update(frame):
-        alpha = alphaList[frame]
-        L = lengthList[frame]
+        idx = frame_idx[0]
+        x = [0, xList[idx]]
+        y = [0, yList[idx]]
+        line.set_data(x, y)
+        xdata.append(xList[idx])
+        ydata.append(yList[idx])
+        trace.set_data(xdata, ydata)
+        time_text.set_text(f'Время = {idx * dt:.2f} с')
 
-        # Координаты маятника
-        x = L * math.sin(alpha)
-        y = -L * math.cos(alpha) + max_length * 0.01  # Смещение подвеса выше
+        # Обновляем индекс кадра в соответствии со скоростью
+        frame_idx[0] += int(speed_slider.val)
+        if frame_idx[0] >= total_frames:
+            frame_idx[0] = 0
+            xdata.clear()
+            ydata.clear()
+        return line, trace, time_text
 
-        line.set_data([0, x], [max_length * 0.01, y])
+    ani = animation.FuncAnimation(
+        fig, update, init_func=init, blit=True, interval=20
+    )
 
-        # Обновление текста
-        time_text.set_text(f'Time: {frame * dt:.2f} s')
-        length_text.set_text(f'Length: {L:.2f} m')
-        return line, time_text, length_text
+    plt.show()
 
-    # Ускорение воспроизведения через fps и interval
-    anim = FuncAnimation(fig, update, frames=len(alphaList), init_func=init, blit=True, interval=dt * 500)
-    anim.save(save_path, fps=15, writer='pillow')
-    plt.close(fig)
 
 def main():
-    alpha0 = 0.5  # Начальный угол (в радианах)
-    omega0 = 0.0  # Начальная угловая скорость
+    # Вызываем функцию simulate с необходимыми параметрами
+    timeList, xList, yList, thetaList, omegaList = simulate(T, dt, theta0, omega0)
+    # plotTrajectory(xList, yList)  # Можно отключить для быстрого запуска анимации
+    animatePendulum(xList, yList, dt)
 
-    # Решение методом Эйлера с изменяющейся длиной нити
-    alphaList, lengthList = eulerVariableLength(alpha0, omega0)
-
-    # Анимация маятника
-    animatePendulum(alphaList, lengthList)
-    print("Анимация сохранена как 'variable_pendulum_animation.gif'")
 
 if __name__ == "__main__":
     main()

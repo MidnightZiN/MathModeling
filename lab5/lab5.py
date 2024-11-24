@@ -1,232 +1,169 @@
-import numpy as np
+import math
 import matplotlib.pyplot as plt
-from matplotlib.animation import FuncAnimation, PillowWriter
-from tqdm import tqdm
-from numba import njit
+from matplotlib import animation
+from matplotlib.widgets import Slider
+import numpy as np
 
-# Константы
-g = 9.81  # Ускорение свободного падения (м/с^2)
-dt = 0.01  # Шаг времени (с)
-T = 10.0  # Общее время моделирования (с)
-e = 0.9  # Коэффициент восстановления при столкновении (0 < e < 1)
-x_min, x_max = 0, 10  # Границы по оси X (м)
-y_min, y_max = 0, 10  # Границы по оси Y (м)
-r = 0.2  # Радиус шарика (м)
+# Физические константы и начальные параметры
+G = 9.8  # Ускорение свободного падения (м/с^2)
+DT = 0.01  # Шаг времени для симуляции (с)
+BALL_RADIUS = 3  # Радиус шарика
+X_MIN, X_MAX = -120, 120  # Границы по оси X
 
+# Параметры синусоидальных границ
+SIN_PARAMS = {
+    "lower": {"A": 15, "omega": 0.1, "phi": 15, "D": -50},
+    "upper": {"A": 15, "omega": 0.3, "phi": 25, "D": 50}
+}
 
-@njit
-def eulerMethod(x0, y0, vx0, vy0):
-    x = x0
-    y = y0
-    vx = vx0
-    vy = vy0
-    timesteps = int(T / dt)
-    xList = np.zeros(timesteps)
-    yList = np.zeros(timesteps)
-    timeList = np.zeros(timesteps)
-
-    for i in range(timesteps):
-        xList[i] = x
-        yList[i] = y
-        timeList[i] = i * dt
-
-        # Обновление скоростей с учетом ускорения свободного падения
-        vy -= g * dt
-
-        # Обновление положений
-        x += vx * dt
-        y += vy * dt
-
-        # Проверка столкновений со стенками
-        if x - r <= x_min:
-            x = x_min + r
-            vx = -vx * e
-        if x + r >= x_max:
-            x = x_max - r
-            vx = -vx * e
-        if y - r <= y_min:
-            y = y_min + r
-            vy = -vy * e
-        if y + r >= y_max:
-            y = y_max - r
-            vy = -vy * e
-
-    return timeList, xList, yList
+# Начальные координаты и скорости мяча
+INIT_PARAMS = {"x": 0, "y": 0, "U": 20, "V": -20}
 
 
-@njit
-def rungeKuttaMethod(x0, y0, vx0, vy0):
-    x = x0
-    y = y0
-    vx = vx0
-    vy = vy0
-    timesteps = int(T / dt)
-    xList = np.zeros(timesteps)
-    yList = np.zeros(timesteps)
-    timeList = np.zeros(timesteps)
-
-    for i in range(timesteps):
-        xList[i] = x
-        yList[i] = y
-        timeList[i] = i * dt
-
-        # Определение функций для ускорений
-        def ax(t, x, y, vx, vy):
-            return 0  # Нет ускорения по оси X
-
-        def ay(t, x, y, vx, vy):
-            return -g  # Ускорение свободного падения по оси Y
-
-        # Коэффициенты Рунге-Кутты
-        k1_vx = dt * ax(timeList[i], x, y, vx, vy)
-        k1_vy = dt * ay(timeList[i], x, y, vx, vy)
-        k1_x = dt * vx
-        k1_y = dt * vy
-
-        k2_vx = dt * ax(timeList[i] + 0.5 * dt, x + 0.5 * k1_x, y + 0.5 * k1_y, vx + 0.5 * k1_vx, vy + 0.5 * k1_vy)
-        k2_vy = dt * ay(timeList[i] + 0.5 * dt, x + 0.5 * k1_x, y + 0.5 * k1_y, vx + 0.5 * k1_vx, vy + 0.5 * k1_vy)
-        k2_x = dt * (vx + 0.5 * k1_vx)
-        k2_y = dt * (vy + 0.5 * k1_vy)
-
-        k3_vx = dt * ax(timeList[i] + 0.5 * dt, x + 0.5 * k2_x, y + 0.5 * k2_y, vx + 0.5 * k2_vx, vy + 0.5 * k2_vy)
-        k3_vy = dt * ay(timeList[i] + 0.5 * dt, x + 0.5 * k2_x, y + 0.5 * k2_y, vx + 0.5 * k2_vx, vy + 0.5 * k2_vy)
-        k3_x = dt * (vx + 0.5 * k2_vx)
-        k3_y = dt * (vy + 0.5 * k2_vy)
-
-        k4_vx = dt * ax(timeList[i] + dt, x + k3_x, y + k3_y, vx + k3_vx, vy + k3_vy)
-        k4_vy = dt * ay(timeList[i] + dt, x + k3_x, y + k3_y, vx + k3_vx, vy + k3_vy)
-        k4_x = dt * (vx + k3_vx)
-        k4_y = dt * (vy + k3_vy)
-
-        # Обновление скоростей и положений
-        vx += (k1_vx + 2 * k2_vx + 2 * k3_vx + k4_vx) / 6
-        vy += (k1_vy + 2 * k2_vy + 2 * k3_vy + k4_vy) / 6
-        x += (k1_x + 2 * k2_x + 2 * k3_x + k4_x) / 6
-        y += (k1_y + 2 * k2_y + 2 * k3_y + k4_y) / 6
-
-        # Проверка столкновений со стенками
-        if x - r <= x_min:
-            x = x_min + r
-            vx = -vx * e
-        if x + r >= x_max:
-            x = x_max - r
-            vx = -vx * e
-        if y - r <= y_min:
-            y = y_min + r
-            vy = -vy * e
-        if y + r >= y_max:
-            y = y_max - r
-            vy = -vy * e
-
-    return timeList, xList, yList
+def calculate_sin(x, A, omega, phi, D):
+    """Вычисляет значение синусоиды в точке x."""
+    return A * math.sin(omega * x + phi) + D
 
 
-def plotTrajectory(timeEuler, xEuler, yEuler, timeRK, xRK, yRK):
-    plt.figure(figsize=(10, 6))
-    plt.title("Траектория движения шарика")
-    plt.plot(xEuler, yEuler, linestyle='--', color='blue', label='Метод Эйлера')
-    plt.plot(xRK, yRK, linestyle='-', color='red', label='Метод Рунге-Кутты 4-го порядка')
-    plt.xlabel("X (м)")
-    plt.ylabel("Y (м)")
-    plt.legend()
-    plt.grid(True)
-    plt.xlim(x_min, x_max)
-    plt.ylim(y_min, y_max)
-    plt.savefig('ball_trajectory.png')
-    plt.close()
+def calculate_normal(x, A, omega, phi, D):
+    """Вычисляет нормаль к синусоиде в точке x."""
+    dy_dx = A * omega * math.cos(omega * x + phi)
+    norm = math.sqrt(dy_dx ** 2 + 1)
+    return -dy_dx / norm, 1 / norm
 
 
-def plotPosition(timeEuler, xEuler, yEuler, timeRK, xRK, yRK):
-    plt.figure(figsize=(12, 6))
-
-    plt.subplot(2, 1, 1)
-    plt.title("Положение шарика по оси X")
-    plt.plot(timeEuler, xEuler, linestyle='--', color='blue', label='Метод Эйлера')
-    plt.plot(timeRK, xRK, linestyle='-', color='red', label='Метод Рунге-Кутты 4-го порядка')
-    plt.ylabel("X (м)")
-    plt.legend()
-    plt.grid(True)
-
-    plt.subplot(2, 1, 2)
-    plt.title("Положение шарика по оси Y")
-    plt.plot(timeEuler, yEuler, linestyle='--', color='green', label='Метод Эйлера')
-    plt.plot(timeRK, yRK, linestyle='-', color='purple', label='Метод Рунге-Кутты 4-го порядка')
-    plt.xlabel("Время (с)")
-    plt.ylabel("Y (м)")
-    plt.legend()
-    plt.grid(True)
-
-    plt.tight_layout()
-    plt.savefig('ball_position.png')
-    plt.close()
+def update_velocity(U, V, nx, ny):
+    """Обновляет скорость после столкновения с поверхностью."""
+    dot_product = U * nx + V * ny
+    U_new = U - 2 * dot_product * nx
+    V_new = V - 2 * dot_product * ny
+    return U_new, V_new
 
 
-def createAnimation(xRK, yRK):
-    # Пропускаем кадры для уменьшения общего количества
-    frame_step = 10  # Используем каждый 10-й кадр
-    xRK = xRK[::frame_step]
-    yRK = yRK[::frame_step]
-    total_frames = len(xRK)
+def simulate_motion(x0, y0, U0, V0, DT, total_time):
+    """Симулирует движение шарика и возвращает списки координат x и y."""
+    x_list = []
+    y_list = []
+    x, y, U, V = x0, y0, U0, V0
+    num_steps = int(total_time / DT)
 
-    fig, ax = plt.subplots(figsize=(6, 6))
-    ax.set_xlim(x_min, x_max)
-    ax.set_ylim(y_min, y_max)
-    ax.set_xlabel('X (м)')
-    ax.set_ylabel('Y (м)')
-    ax.set_title('Анимация движения шарика')
-    ax.grid(True)
+    for _ in range(num_steps):
+        x_new = x + U * DT
+        y_new = y + V * DT - 0.5 * G * DT ** 2
+        V -= G * DT
 
-    circle = plt.Circle((xRK[0], yRK[0]), r, color='red')
-    ax.add_patch(circle)
+        # Проверка столкновений с вертикальными границами
+        if x_new <= X_MIN or x_new >= X_MAX:
+            U = -U
 
-    def init():
-        circle.center = (xRK[0], yRK[0])
-        return circle,
+        # Проверка столкновений с синусоидальными границами
+        for boundary, params in SIN_PARAMS.items():
+            A, omega, phi, D = params.values()
+            sin_y = calculate_sin(x_new, A, omega, phi, D)
+            if (boundary == "lower" and y_new <= sin_y) or (boundary == "upper" and y_new >= sin_y):
+                nx, ny = calculate_normal(x_new, A, omega, phi, D)
+                U, V = update_velocity(U, V, nx, ny)
+                y_new = sin_y  # Корректируем позицию по границе
+                break
 
-    def update(frame):
-        circle.center = (xRK[frame], yRK[frame])
-        return circle,
+        x, y = x_new, y_new
+        x_list.append(x)
+        y_list.append(y)
 
-    print("Создание анимации:")
-    ani = FuncAnimation(fig, update, frames=range(total_frames), init_func=init, blit=True, interval=10)
-
-    # Добавляем прогресс бар при сохранении анимации
-    print("Сохранение анимации в файл GIF:")
-    with tqdm(total=total_frames) as pbar:
-        def update_progress(current_frame, total_frames):
-            pbar.update(1)
-
-        ani.save('ball_bouncing_animation.gif', writer=PillowWriter(fps=60), progress_callback=update_progress)
-
-    plt.close()
+    return x_list, y_list
 
 
-def main():
-    # Начальные условия
-    x0 = 1.0  # Начальное положение по X (м)
-    y0 = 5.0  # Начальное положение по Y (м)
-    vx0 = 2.0  # Начальная скорость по X (м/с)
-    vy0 = 0.0  # Начальная скорость по Y (м/с)
+class AnimationHandler:
+    def __init__(self):
+        # Инициализация фигуры и осей
+        self.fig, self.ax = plt.subplots(figsize=(10, 6))
+        plt.subplots_adjust(bottom=0.25)  # Оставляем место для слайдера
+        self.ball = plt.Circle((INIT_PARAMS["x"], INIT_PARAMS["y"]), BALL_RADIUS, color='green')
+        self.init_graphics()
 
-    print("Вычисление численного решения методом Эйлера:")
-    timeEuler, xEuler, yEuler = eulerMethod(x0, y0, vx0, vy0)
-    print("Метод Эйлера завершён.")
+        # Симуляция движения и сохранение позиций
+        total_time = 30  # Общее время симуляции в секундах
+        self.x_positions, self.y_positions = simulate_motion(
+            INIT_PARAMS["x"], INIT_PARAMS["y"], INIT_PARAMS["U"], INIT_PARAMS["V"], DT, total_time
+        )
 
-    print("Вычисление численного решения методом Рунге-Кутты 4-го порядка:")
-    timeRK, xRK, yRK = rungeKuttaMethod(x0, y0, vx0, vy0)
-    print("Метод Рунге-Кутты завершён.")
+        self.num_frames = len(self.x_positions)
+        self.frame_idx = 0
+        self.frame_accum = 0.0
 
-    # Построение графиков
-    plotTrajectory(timeEuler, xEuler, yEuler, timeRK, xRK, yRK)
-    plotPosition(timeEuler, xEuler, yEuler, timeRK, xRK, yRK)
-    print("Графики сохранены как 'ball_trajectory.png' и 'ball_position.png'.")
+        # Добавляем слайдер скорости
+        self.speed_slider = self.add_speed_slider()
 
-    # Создание анимации
-    createAnimation(xRK, yRK)
-    print("Анимация сохранена как 'ball_bouncing_animation.gif'")
+    def init_graphics(self):
+        """Инициализация графики."""
+        self.fig.patch.set_facecolor('white')
+        self.ax.set_facecolor("white")
+        self.ax.set_aspect('equal')
+        self.ax.set_xlim(X_MIN, X_MAX)
+
+        # Вычисляем пределы по оси Y на основе синусоид
+        x_values = np.linspace(X_MIN, X_MAX, 1000)
+        y_min = np.inf
+        y_max = -np.inf
+        for params in SIN_PARAMS.values():
+            A, omega, phi, D = params.values()
+            y_values = A * np.sin(omega * x_values + phi) + D
+            y_min = min(y_min, np.min(y_values))
+            y_max = max(y_max, np.max(y_values))
+            self.ax.plot(x_values, y_values, color="blue")
+
+        y_range = y_max - y_min
+        y_margin = 0.1 * y_range
+        y_min_plot = y_min - y_margin
+        y_max_plot = y_max + y_margin
+        self.ax.set_ylim(y_min_plot, y_max_plot)
+
+        # Вертикальные границы
+        self.ax.axvline(X_MIN, color="red")
+        self.ax.axvline(X_MAX, color="red")
+
+        # Добавляем шарик
+        self.ax.add_patch(self.ball)
+
+    def add_speed_slider(self):
+        """Добавляет слайдер скорости на график."""
+        axspeed = plt.axes([0.25, 0.1, 0.5, 0.03])
+        speed_slider = Slider(
+            ax=axspeed,
+            label='Скорость',
+            valmin=0.0,
+            valmax=50.0,
+            valinit=0.0,  # Начальное значение - остановка времени
+        )
+        return speed_slider
+
+    def update(self, frame):
+        """Функция обновления для анимации."""
+        # Получаем скорость из слайдера
+        speed = self.speed_slider.val
+        # Накопление индекса кадра
+        self.frame_accum += speed
+        if self.frame_accum >= 1.0:
+            increment = int(self.frame_accum)
+            self.frame_accum -= increment
+            self.frame_idx = (self.frame_idx + increment) % self.num_frames
+        # Обновляем позицию шарика
+        x = self.x_positions[self.frame_idx]
+        y = self.y_positions[self.frame_idx]
+        self.ball.set_center((x, y))
+        return [self.ball]
+
+    def run(self):
+        """Запуск анимации."""
+        ani = animation.FuncAnimation(
+            self.fig,
+            self.update,
+            frames=self.num_frames,
+            interval=20,
+            blit=True
+        )
+        plt.show()
 
 
-if __name__ == "__main__":
-    main()
-
-#Ступенчатая функция
+if __name__ == '__main__':
+    AnimationHandler().run()

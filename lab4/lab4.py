@@ -178,7 +178,8 @@ def createAnimation(thetaRK, rRK):
         def update_progress(current_frame, total_frames):
             pbar.update(1)
 
-        ani.save('spring_pendulum_animation.gif', writer=PillowWriter(fps=60), progress_callback=update_progress)
+        #ani.save('spring_pendulum_animation.gif', writer=PillowWriter(fps=60), progress_callback=update_progress)
+        plt.show()
 
     plt.close()
 
