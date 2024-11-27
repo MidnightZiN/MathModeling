@@ -1,91 +1,23 @@
 import math
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+from matplotlib.widgets import Slider
+import numpy as np
 
 # Константы
-k = 1.0      # Жёсткость пружины
-m = 1.0      # Масса
-gamma = 0.1  # Коэффициент затухания
-dt = 0.01    # Шаг времени
-T = 30.0     # Время моделирования
-F0 = 0.5     # Амплитуда внешней силы
-omega_ext = 1.5  # Частота внешней силы
+k = 1.0  # Жёсткость пружины (N/m)
+m = 1.0  # Масса (kg)
+gamma = 0.1  # Коэффициент затухания (1/s)
+dt = 0.01  # Шаг времени (с)
+T = 30.0  # Время моделирования (с)
+F0 = 0.5  # Амплитуда внешней силы (N)
+omega_ext = 1.5  # Частота внешней силы (rad/s)
+
 
 # Функция внешней силы
 def externalForce(t):
     return F0 * math.cos(omega_ext * t)
 
-def analyticalSolution(x0, v0):
-    timesteps = int(T / dt)
-    xList = [0.0] * timesteps
-    timeList = [0.0] * timesteps
-
-    omega0 = math.sqrt(k / m)
-    omega1 = math.sqrt(omega0 ** 2 - gamma ** 2)
-
-    print("Вычисление аналитического решения:")
-    for i in tqdm(range(timesteps)):
-        t = i * dt
-        exp_term = math.exp(-gamma * t)
-        cos_term = math.cos(omega1 * t)
-        sin_term = math.sin(omega1 * t)
-        x_hom = exp_term * (x0 * cos_term + (v0 + gamma * x0) / omega1 * sin_term)
-        xList[i] = x_hom
-        timeList[i] = t
-
-    return timeList, xList
-
-def eulerMethod(x0, v0):
-    x = x0
-    v = v0
-    timesteps = int(T / dt)
-    xList = [0.0] * timesteps
-    timeList = [0.0] * timesteps
-
-    print("Вычисление численного решения методом Эйлера:")
-    for i in tqdm(range(timesteps)):
-        xList[i] = x
-        timeList[i] = i * dt
-
-        a = - (k / m) * x - (gamma / m) * v
-        x += v * dt
-        v += a * dt
-
-    return timeList, xList
-
-def rungeKutta(x0, v0):
-    x = x0
-    v = v0
-    timesteps = int(T / dt)
-    xList = [0.0] * timesteps
-    timeList = [0.0] * timesteps
-
-    print("Вычисление численного решения методом Рунге-Кутты 4-го порядка:")
-    for i in tqdm(range(timesteps)):
-        xList[i] = x
-        timeList[i] = i * dt
-
-        # Промежуточные коэффициенты
-        a1 = - (k / m) * x - (gamma / m) * v
-        k1_x = dt * v
-        k1_v = dt * a1
-
-        a2 = - (k / m) * (x + 0.5 * k1_x) - (gamma / m) * (v + 0.5 * k1_v)
-        k2_x = dt * (v + 0.5 * k1_v)
-        k2_v = dt * a2
-
-        a3 = - (k / m) * (x + 0.5 * k2_x) - (gamma / m) * (v + 0.5 * k2_v)
-        k3_x = dt * (v + 0.5 * k2_v)
-        k3_v = dt * a3
-
-        a4 = - (k / m) * (x + k3_x) - (gamma / m) * (v + k3_v)
-        k4_x = dt * (v + k3_v)
-        k4_v = dt * a4
-
-        x += (k1_x + 2 * k2_x + 2 * k3_x + k4_x) / 6
-        v += (k1_v + 2 * k2_v + 2 * k3_v + k4_v) / 6
-
-    return timeList, xList
 
 def analyticalSolutionWithForce(x0, v0):
     timesteps = int(T / dt)
@@ -93,26 +25,58 @@ def analyticalSolutionWithForce(x0, v0):
     timeList = [0.0] * timesteps
 
     omega0 = math.sqrt(k / m)
-    omega1 = math.sqrt(omega0 ** 2 - gamma ** 2)
+    gamma_val = gamma  # Избегаем конфликтов с именем функции
 
-    print("Вычисление аналитического решения:")
+    # Определяем омега1 (допустим, без затухания)
+    if omega0 > gamma_val:
+        omega1 = math.sqrt(omega0 ** 2 - gamma_val ** 2)
+    else:
+        omega1 = 0.0  # Критическое затухание или переоснащение
 
     # Амплитуда и фаза частного решения
-    denominator = ((omega0 ** 2 - omega_ext ** 2) ** 2 + (gamma * omega_ext) ** 2)
-    A = F0 / m / math.sqrt(denominator)
-    phi = math.atan2(gamma * omega_ext, omega0 ** 2 - omega_ext ** 2)
+    denominator = math.sqrt((omega0 ** 2 - omega_ext ** 2) ** 2 + (gamma_val * omega_ext) ** 2)
+    A = F0 / m / denominator
+    phi = math.atan2(gamma_val * omega_ext, omega0 ** 2 - omega_ext ** 2)
 
+    # Частное решение
+    def x_particular(t):
+        return A * math.cos(omega_ext * t - phi)
+
+    # Производная частного решения
+    def v_particular(t):
+        return -A * omega_ext * math.sin(omega_ext * t - phi)
+
+    # Коэффициенты однородного решения для удовлетворения начальных условий
+    # x(t) = x_hom(t) + x_part(t)
+    # x(0) = x0 = x_hom(0) + x_part(0)
+    # v(0) = v0 = x'_hom(0) + x'_part(0)
+    x_p0 = x_particular(0)
+    v_p0 = v_particular(0)
+
+    C = x0 - x_p0
+    if omega1 != 0.0:
+        D = (v0 - v_p0 + gamma_val * C) / omega1
+    else:
+        # В случае критического или переоснащённого затухания
+        # Решение изменяется, но для простоты можно считать D=0
+        D = 0.0
+
+    print("Вычисление аналитического решения с внешней силой:")
     for i in tqdm(range(timesteps)):
         t = i * dt
-        exp_term = math.exp(-gamma * t)
-        cos_term = math.cos(omega1 * t)
-        sin_term = math.sin(omega1 * t)
-        x_hom = exp_term * (x0 * cos_term + (v0 + gamma * x0) / omega1 * sin_term)
-        x_part = A * math.cos(omega_ext * t - phi)
-        xList[i] = x_hom + x_part
+        exp_term = math.exp(-gamma_val * t)
+        if omega1 != 0.0:
+            x_hom = exp_term * (C * math.cos(omega1 * t) + D * math.sin(omega1 * t))
+        else:
+            # Критическое затухание: x_hom(t) = (C + D * t) * e^(-gamma t)
+            x_hom = (C + D * t) * math.exp(-gamma_val * t)
+        x_p = x_particular(t)
+        x_total = x_hom + x_p
+        xList[i] = x_total
         timeList[i] = t
 
     return timeList, xList
+
 
 def eulerMethodWithForce(x0, v0):
     x = x0
@@ -121,7 +85,7 @@ def eulerMethodWithForce(x0, v0):
     xList = [0.0] * timesteps
     timeList = [0.0] * timesteps
 
-    print("Вычисление численного решения методом Эйлера:")
+    print("Вычисление численного решения методом Эйлера с внешней силой:")
     for i in tqdm(range(timesteps)):
         xList[i] = x
         timeList[i] = i * dt
@@ -133,6 +97,7 @@ def eulerMethodWithForce(x0, v0):
 
     return timeList, xList
 
+
 def rungeKuttaWithForce(x0, v0):
     x = x0
     v = v0
@@ -140,7 +105,7 @@ def rungeKuttaWithForce(x0, v0):
     xList = [0.0] * timesteps
     timeList = [0.0] * timesteps
 
-    print("Вычисление численного решения методом Рунге-Кутты 4-го порядка:")
+    print("Вычисление численного решения методом Рунге-Кутты 4-го порядка с внешней силой:")
     for i in tqdm(range(timesteps)):
         xList[i] = x
         timeList[i] = i * dt
@@ -169,9 +134,10 @@ def rungeKuttaWithForce(x0, v0):
 
     return timeList, xList
 
+
 def plotGraph(timeEuler, xEuler, timeRK, xRK, timeAnalytical, xAnalytical):
     plt.figure(figsize=(10, 6))
-    plt.title("Колебания гармонического осциллятора")
+    plt.title("Колебания гармонического осциллятора с внешней силой")
     plt.xlabel("Время (с)")
     plt.ylabel("Смещение (м)")
 
@@ -191,6 +157,7 @@ def plotGraph(timeEuler, xEuler, timeRK, xRK, timeAnalytical, xAnalytical):
     plt.show()
     plt.close()
 
+
 def plotError(timeList, analytical, numerical, method_name):
     error = [abs(a - n) for a, n in zip(analytical, numerical)]
     plt.figure(figsize=(8, 6))
@@ -198,8 +165,11 @@ def plotError(timeList, analytical, numerical, method_name):
     plt.xlabel("Время (с)")
     plt.ylabel("Абсолютная ошибка")
     plt.plot(timeList, error)
-    plt.savefig(f'Ошибка_{method_name}.png')
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
     plt.close()
+
 
 def main():
     x0 = 1.0  # Начальное смещение (м)
@@ -215,10 +185,11 @@ def main():
     timeAnalytical, xAnalytical = analyticalSolutionWithForce(x0, v0)
 
     plotGraph(timeEuler, xEuler, timeRK, xRK, timeAnalytical, xAnalytical)
-    plotError(timeEuler, xAnalytical, xEuler, "методом Эйлера")
-    plotError(timeRK, xAnalytical, xRK, "методом Рунге-Кутты")
+    #plotError(timeEuler, xAnalytical, xEuler, "методом Эйлера")
+    #plotError(timeRK, xAnalytical, xRK, "методом Рунге-Кутты")
 
-    print("График сохранён как 'oscillator.png'")
+    print("Графики отображены.")
+
 
 if __name__ == "__main__":
     main()

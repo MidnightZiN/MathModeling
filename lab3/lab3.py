@@ -1,159 +1,99 @@
-import math
-import matplotlib.pyplot as plt
-from matplotlib import animation
-from matplotlib.widgets import Slider
 import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
 
-# Константы
-g = 9.81  # Ускорение свободного падения (м/с^2)
-L = 1.0  # Длина нити маятника (м)
-dt = 0.001  # Шаг времени (с)
-T = 10.0  # Время моделирования (с)
-
-# Начальные условия
-theta0 = math.radians(120)  # Начальный угол отклонения (рад)
-omega0 = 0.0  # Начальная угловая скорость (рад/с)
+# Параметры
+g = 9.81  # Ускорение свободного падения, м/с^2
 
 
-# Функция для расчета натяжения нити
-def tension(theta, omega):
-    Tension = L * omega ** 2 + g * math.cos(theta)
-    return Tension
+def compute_force(x, y, L, k):
+    """
+    Вычисляет силы и ускорения с учетом растяжения нити.
+    """
+    r = np.sqrt(x ** 2 + y ** 2)  # Расстояние от точки подвеса
+    if r > L:  # Если нить растянута
+        tension_force = k * (r - L)  # Пропорционально растягиванию
+        ax = -tension_force * x / r
+        ay = -tension_force * y / r - g  # Учитываем гравитацию
+    else:  # Если нить не растянута
+        ax = 0
+        ay = -g  # Только гравитация
+    return ax, ay
 
 
-def simulate(T, dt, theta0, omega0):
-    timesteps = int(T / dt)
-    timeList = np.linspace(0, T, timesteps)
+def simulate_pendulum_bouncing(x0, y0, vx0, vy0, L, k, T, dt):
+    """
+    Симуляция движения маятника с отскоками.
+    """
+    times = np.arange(0, T, dt)
+    x, y = np.zeros(len(times)), np.zeros(len(times))
+    vx, vy = np.zeros(len(times)), np.zeros(len(times))
+    x[0], y[0], vx[0], vy[0] = x0, y0, vx0, vy0
 
-    # Списки для хранения результатов
-    thetaList = []
-    omegaList = []
-    xList = []
-    yList = []
+    for i in range(1, len(times)):
+        ax, ay = compute_force(x[i - 1], y[i - 1], L, k)
+        vx[i] = vx[i - 1] + ax * dt
+        vy[i] = vy[i - 1] + ay * dt
+        x[i] = x[i - 1] + vx[i] * dt
+        y[i] = y[i - 1] + vy[i] * dt
 
-    # Начальные условия
-    theta = theta0
-    omega = omega0
-    x = L * math.sin(theta)
-    y = -L * math.cos(theta)
-    vx = 0.0
-    vy = 0.0
+        # Если маятник достигает максимального растяжения нити
+        r = np.sqrt(x[i] ** 2 + y[i] ** 2)
+        if r > L:
+            # Ограничиваем длину нити
+            x[i] = x[i] * L / r
+            y[i] = y[i] * L / r
+            # Вычисляем радиальную скорость и инвертируем её для имитации отскока
+            v_radial = (vx[i] * x[i] + vy[i] * y[i]) / L  # Составляющая вдоль радиуса
+            vx[i] -= 2 * v_radial * x[i] / L
+            vy[i] -= 2 * v_radial * y[i] / L
 
-    mode = 'swing'  # Режим: 'swing' (маятник) или 'freefall' (свободное падение)
-
-    for t in timeList:
-        if mode == 'swing':
-            # Вычисляем натяжение нити
-            Tension = tension(theta, omega)
-            if Tension > 0:
-                # Уравнения движения для маятника
-                alpha = -(g / L) * math.sin(theta)
-                omega += alpha * dt
-                theta += omega * dt
-                x = L * math.sin(theta)
-                y = -L * math.cos(theta)
-                vx = L * omega * math.cos(theta)
-                vy = L * omega * math.sin(theta)
-            else:
-                # Нить ослабла, переходим в режим свободного падения
-                mode = 'freefall'
-                # Преобразуем полярные координаты в декартовы скорости
-                vx = L * omega * math.cos(theta)
-                vy = L * omega * math.sin(theta)
-        elif mode == 'freefall':
-            # Уравнения движения для свободного падения
-            vx = vx
-            vy = vy + (-g) * dt
-            x += vx * dt
-            y += vy * dt
-            # Проверяем, натянулась ли нить
-            r = math.sqrt(x ** 2 + y ** 2)
-            if r >= L:
-                mode = 'swing'
-                theta = math.atan2(x, -y)
-                omega = (x * vy - y * vx) / (L ** 2)
-                # Проецируем x и y на окружность радиуса L
-                x = L * math.sin(theta)
-                y = -L * math.cos(theta)
-                vx = L * omega * math.cos(theta)
-                vy = L * omega * math.sin(theta)
-
-        # Сохраняем результаты
-        thetaList.append(theta)
-        omegaList.append(omega)
-        xList.append(x)
-        yList.append(y)
-
-    return timeList, xList, yList, thetaList, omegaList
+    return times, x, y
 
 
-def animatePendulum(xList, yList, dt):
+def visualize_pendulum_bouncing(times, x, y, L):
+    """
+    Визуализация движения маятника с отскоками.
+    Накладывает траекторию на анимацию маятника.
+    """
     fig, ax = plt.subplots(figsize=(8, 8))
-    plt.subplots_adjust(bottom=0.25)  # Оставляем место для слайдера
-    ax.set_xlim(-1.2 * L, 1.2 * L)
-    ax.set_ylim(-1.2 * L, 1.2 * L)
+    ax.set_xlim(-L - 1, L + 1)
+    ax.set_ylim(-L - 1, L + 1)
     ax.set_aspect('equal')
-    ax.grid()
+    ax.set_title("Маятник с отскоками и его траектория")
+    ax.set_xlabel("Координата x")
+    ax.set_ylabel("Координата y")
 
-    line, = ax.plot([], [], 'o-', lw=2)
-    trace, = ax.plot([], [], '-', lw=1, color='gray', alpha=0.5)
-    time_text = ax.text(0.05, 0.9, '', transform=ax.transAxes)
+    # Объекты для анимации маятника и траектории
+    line, = ax.plot([], [], 'o-', lw=2, label='Маятник')
+    trajectory, = ax.plot([], [], 'r-', lw=1.5, label='Траектория')
 
-    xdata, ydata = [], []
+    # Легенда
+    ax.legend()
 
-    # Добавляем ось для слайдера скорости
-    axspeed = plt.axes([0.25, 0.1, 0.65, 0.03])
-    speed_slider = Slider(
-        ax=axspeed,
-        label='Скорость',
-        valmin=1.0,
-        valmax=50.0,
-        valinit=1.0,
-    )
-
-    # Функция инициализации
-    def init():
-        line.set_data([], [])
-        trace.set_data([], [])
-        time_text.set_text('')
-        return line, trace, time_text
-
-    # Индекс текущего кадра
-    frame_idx = [0]
-    total_frames = len(xList)
-
-    # Функция обновления кадров
     def update(frame):
-        idx = frame_idx[0]
-        x = [0, xList[idx]]
-        y = [0, yList[idx]]
-        line.set_data(x, y)
-        xdata.append(xList[idx])
-        ydata.append(yList[idx])
-        trace.set_data(xdata, ydata)
-        time_text.set_text(f'Время = {idx * dt:.2f} с')
+        # Обновляем положение маятника
+        line.set_data([0, x[frame]], [0, y[frame]])
+        # Обновляем траекторию
+        trajectory.set_data(x[:frame + 1], y[:frame + 1])
+        return line, trajectory
 
-        # Обновляем индекс кадра в соответствии со скоростью
-        frame_idx[0] += int(speed_slider.val)
-        if frame_idx[0] >= total_frames:
-            frame_idx[0] = 0
-            xdata.clear()
-            ydata.clear()
-        return line, trace, time_text
-
-    ani = animation.FuncAnimation(
-        fig, update, init_func=init, blit=True, interval=20
-    )
-
+    ani = FuncAnimation(fig, update, frames=len(times), interval=20, blit=True)
     plt.show()
 
 
-def main():
-    # Вызываем функцию simulate с необходимыми параметрами
-    timeList, xList, yList, thetaList, omegaList = simulate(T, dt, theta0, omega0)
-    # plotTrajectory(xList, yList)  # Можно отключить для быстрого запуска анимации
-    animatePendulum(xList, yList, dt)
-
-
+# Основная программа
 if __name__ == "__main__":
-    main()
+    # Начальные параметры
+    L = 1.1  # Длина нити
+    x0, y0 = -0.3, 0.6  # Начальная координата
+    vx0, vy0 = 0.0, 2.8  # Начальная скорость
+    k = 8.0  # Коэффициент упругости
+    T = 30.0  # Время моделирования
+    dt = 0.01  # Шаг времени
+
+    # Симуляция
+    times, x, y = simulate_pendulum_bouncing(x0, y0, vx0, vy0, L, k, T, dt)
+
+    # Визуализация
+    visualize_pendulum_bouncing(times, x, y, L)
