@@ -177,5 +177,5 @@ if __name__ == "__main__":
     # Параметры можно настроить по желанию
     # speed_multiplier: увеличивает скорость движения
     # num_circles: количество шариков
-    simulation = Simulation(speed_multiplier=9.0, num_circles=5)
+    simulation = Simulation(speed_multiplier=3.0, num_circles=12)
     simulation.run()
